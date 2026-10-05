@@ -1,6 +1,10 @@
 // Activity Suggester — fetches activities from the Bored API (runs in the browser).
 const API_BASE = "https://bored-api.appbrewery.com";
 
+// If a direct request fails (e.g. CORS), we retry through a public CORS proxy.
+// This keeps the app working even if the API doesn't send CORS headers.
+const CORS_PROXY = "https://corsproxy.io/?url=";
+
 const els = {
   type: document.getElementById("type"),
   participants: document.getElementById("participants"),
@@ -108,16 +112,29 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
+// Fetch JSON, retrying through a CORS proxy if the direct call is blocked.
+async function fetchActivity(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return await res.json();
+  } catch (directErr) {
+    // Likely a CORS failure (TypeError: Failed to fetch). Retry via proxy.
+    console.warn("Direct request failed, retrying via CORS proxy:", directErr);
+    const proxied = CORS_PROXY + encodeURIComponent(url);
+    const res = await fetch(proxied);
+    if (!res.ok) throw new Error(`Proxy request failed (${res.status})`);
+    return await res.json();
+  }
+}
+
 async function suggest() {
   els.suggest.disabled = true;
   els.result.hidden = true;
   setStatus("Finding something for you…");
 
   try {
-    const res = await fetch(buildUrl());
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-
-    const data = await res.json();
+    const data = await fetchActivity(buildUrl());
     const activity = pickOne(data);
 
     if (!activity || !activity.activity) {
@@ -128,10 +145,11 @@ async function suggest() {
     setStatus("");
     renderResult(activity);
   } catch (err) {
-    setStatus(
-      "Couldn't reach the activity service. Check your connection and try again.",
-      true
-    );
+    const hint =
+      location.protocol === "file:"
+        ? "Open this page via a local server (not file://) — see the README."
+        : "Open the browser console (F12) for details.";
+    setStatus(`Couldn't reach the activity service. ${hint}`, true);
     console.error(err);
   } finally {
     els.suggest.disabled = false;
