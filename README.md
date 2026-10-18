@@ -40,9 +40,17 @@ You can also trigger a deployment manually from the **Actions** tab
 
 ## How it works
 
-Everything runs in the browser — there's no backend. `app.js` calls the Bored API
-directly. If the direct call is blocked by CORS, it automatically retries through a
-public CORS proxy so the app keeps working.
+Everything runs in the browser — there's no backend by default. `app.js` calls
+the Bored API. Because that API doesn't send CORS headers, the request is routed
+through a proxy.
+
+### Reliability: use your own proxy (recommended)
+
+Public CORS proxies are free but unreliable (rate limits, downtime). For a stable
+app, deploy the included **Cloudflare Worker** — a free proxy you control — and
+point the app at it. See [`worker/README.md`](worker/README.md). Once deployed,
+set `WORKER_BASE` in `app.js` to your Worker URL. The public proxies remain as an
+automatic fallback.
 
 | File | Purpose |
 |------|---------|

@@ -1,10 +1,15 @@
 // Activity Suggester — fetches activities from the Bored API (runs in the browser).
 const API_BASE = "https://bored-api.appbrewery.com";
 
+// RECOMMENDED: your own Cloudflare Worker proxy (see worker/README.md).
+// Once deployed, paste its URL here, e.g.
+//   "https://bored-api-proxy.your-name.workers.dev"
+// This is the reliable path. Leave empty to rely on public proxies below.
+const WORKER_BASE = "";
+
 // The Bored API doesn't send CORS headers, so a browser can't read its response
-// directly. We route requests through public CORS proxies that add the headers.
-// Each entry wraps a target URL; we try them in order until one works.
-// No API keys required.
+// directly. If no Worker is configured (or it fails), we fall back to public
+// CORS proxies. These are free but unreliable — prefer the Worker above.
 const CORS_PROXIES = [
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   (url) => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
@@ -21,9 +26,9 @@ const els = {
   result: document.getElementById("result"),
 };
 
-// Build the request URL from the selected filters.
+// Build the API path (+query) from the selected filters.
 // If no filters are set, use /random; otherwise use /filter.
-function buildUrl() {
+function buildPath() {
   const params = new URLSearchParams();
 
   if (els.type.value) params.set("type", els.type.value);
@@ -45,7 +50,7 @@ function buildUrl() {
   }
 
   const query = params.toString();
-  return query ? `${API_BASE}/filter?${query}` : `${API_BASE}/random`;
+  return query ? `/filter?${query}` : `/random`;
 }
 
 function pickOne(data) {
@@ -131,25 +136,38 @@ async function readJson(res) {
   }
 }
 
-// Fetch JSON, trying a direct request first, then each CORS proxy in turn.
-async function fetchActivity(url) {
-  // 1) Try the API directly — works if it ever starts sending CORS headers,
-  //    or when running on the same origin.
+// Fetch activity JSON for an API path like "/random" or "/filter?type=...".
+// Order of preference: your Cloudflare Worker → direct → public CORS proxies.
+async function fetchActivity(path) {
+  const apiUrl = `${API_BASE}${path}`;
+
+  // 1) Preferred: your own Worker proxy (reliable, no CORS issues).
+  if (WORKER_BASE) {
+    try {
+      const res = await fetch(`${WORKER_BASE}${path}`);
+      if (res.ok) return await readJson(res);
+      console.warn(`Worker returned ${res.status}`);
+    } catch (err) {
+      console.warn("Worker request failed:", err.message);
+    }
+  }
+
+  // 2) Try the API directly — works only if it sends CORS headers.
   try {
-    const res = await fetch(url);
+    const res = await fetch(apiUrl);
     if (res.ok) return await readJson(res);
   } catch (err) {
     console.warn("Direct request failed (likely CORS):", err.message);
   }
 
-  // 2) Fall back through the CORS proxies until one succeeds.
+  // 3) Last resort: public CORS proxies (free but unreliable).
   let lastError;
   for (const makeUrl of CORS_PROXIES) {
     try {
-      const res = await fetch(makeUrl(url));
+      const res = await fetch(makeUrl(apiUrl));
       if (!res.ok) {
         lastError = new Error(`Proxy returned ${res.status}`);
-        console.warn(`Proxy failed (${res.status}):`, makeUrl(url));
+        console.warn(`Proxy failed (${res.status}):`, makeUrl(apiUrl));
         continue;
       }
       return await readJson(res);
@@ -168,7 +186,7 @@ async function suggest() {
   setStatus("Finding something for you…");
 
   try {
-    const data = await fetchActivity(buildUrl());
+    const data = await fetchActivity(buildPath());
     const activity = pickOne(data);
 
     if (!activity || !activity.activity) {
@@ -179,10 +197,9 @@ async function suggest() {
     setStatus("");
     renderResult(activity);
   } catch (err) {
-    const hint =
-      location.protocol === "file:"
-        ? "Open this page via a local server (not file://) — see the README."
-        : "The activity service (or its CORS proxy) may be temporarily down. Try again in a moment.";
+    const hint = WORKER_BASE
+      ? "The proxy may be temporarily unreachable. Try again in a moment."
+      : "Public CORS proxies are down. Set up your own proxy for reliability — see worker/README.md.";
     setStatus(`Couldn't reach the activity service. ${hint}`, true);
     console.error(err);
   } finally {

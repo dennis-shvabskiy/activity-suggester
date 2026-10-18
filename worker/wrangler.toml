@@ -1,0 +1,10 @@
+# Cloudflare Workers config for the Bored API CORS proxy.
+# Deploy with: npx wrangler deploy   (run inside this `worker/` folder)
+
+name = "bored-api-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# After `npx wrangler deploy`, Wrangler prints your Worker URL, e.g.
+#   https://bored-api-proxy.<your-subdomain>.workers.dev
+# Put that URL in ../app.js as WORKER_BASE.
