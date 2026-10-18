@@ -5,7 +5,7 @@ const API_BASE = "https://bored-api.appbrewery.com";
 // Once deployed, paste its URL here, e.g.
 //   "https://bored-api-proxy.your-name.workers.dev"
 // This is the reliable path. Leave empty to rely on public proxies below.
-const WORKER_BASE = "";
+const WORKER_BASE = "https://bored-api-proxy.dennis-shvabskiy.workers.dev";
 
 // The Bored API doesn't send CORS headers, so a browser can't read its response
 // directly. If no Worker is configured (or it fails), we fall back to public
@@ -72,7 +72,10 @@ function priceLabel(price) {
 }
 
 function accessibilityLabel(a) {
-  if (a == null) return "—";
+  if (a == null || a === "") return "—";
+  // This API returns a text label (e.g. "Few to no challenges",
+  // "Major challenges"). Older versions used a 0–1 number — handle both.
+  if (typeof a === "string") return a;
   if (a <= 0.3) return "Easy";
   if (a <= 0.6) return "Moderate";
   return "Hard";
@@ -89,6 +92,16 @@ function renderResult(activity) {
   const price = typeof activity.price === "number" ? priceLabel(activity.price) : "—";
   const access = accessibilityLabel(activity.accessibility);
 
+  // Optional extra chips for fields this API provides.
+  const chips = [];
+  if (activity.duration) chips.push(`⏱ ${escapeHtml(String(activity.duration))}`);
+  if (activity.kidfriendly === true) chips.push("👶 Kid-friendly");
+  const chipsHtml = chips.length
+    ? `<div class="result__chips">${chips
+        .map((c) => `<span class="chip">${c}</span>`)
+        .join("")}</div>`
+    : "";
+
   const linkHtml =
     activity.link && activity.link.trim()
       ? `<a class="result__link" href="${activity.link}" target="_blank" rel="noopener noreferrer">Learn more →</a>`
@@ -97,6 +110,7 @@ function renderResult(activity) {
   els.result.innerHTML = `
     <span class="result__type">${type}</span>
     <h3 class="result__activity">${escapeHtml(activity.activity)}</h3>
+    ${chipsHtml}
     <div class="result__meta">
       <div class="meta">
         <div class="meta__value">${participants}</div>
@@ -108,7 +122,7 @@ function renderResult(activity) {
       </div>
       <div class="meta">
         <div class="meta__value">${access}</div>
-        <span class="meta__label">Effort</span>
+        <span class="meta__label">Accessibility</span>
       </div>
     </div>
     ${linkHtml}
