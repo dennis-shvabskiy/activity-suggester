@@ -1,9 +1,15 @@
 // Activity Suggester — fetches activities from the Bored API (runs in the browser).
 const API_BASE = "https://bored-api.appbrewery.com";
 
-// If a direct request fails (e.g. CORS), we retry through a public CORS proxy.
-// This keeps the app working even if the API doesn't send CORS headers.
-const CORS_PROXY = "https://corsproxy.io/?url=";
+// The Bored API doesn't send CORS headers, so a browser can't read its response
+// directly. We route requests through public CORS proxies that add the headers.
+// Each entry wraps a target URL; we try them in order until one works.
+// No API keys required.
+const CORS_PROXIES = [
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
+  (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+];
 
 const els = {
   type: document.getElementById("type"),
@@ -112,20 +118,48 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
-// Fetch JSON, retrying through a CORS proxy if the direct call is blocked.
+// Parse a response as JSON. Some proxies return the body as a quoted/escaped
+// string, so fall back to parsing the raw text if res.json() comes back as text.
+async function readJson(res) {
+  const text = await res.text();
+  try {
+    const parsed = JSON.parse(text);
+    // A few proxies wrap the payload as a JSON string; unwrap once if needed.
+    return typeof parsed === "string" ? JSON.parse(parsed) : parsed;
+  } catch {
+    throw new Error("Response was not valid JSON");
+  }
+}
+
+// Fetch JSON, trying a direct request first, then each CORS proxy in turn.
 async function fetchActivity(url) {
+  // 1) Try the API directly — works if it ever starts sending CORS headers,
+  //    or when running on the same origin.
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    return await res.json();
-  } catch (directErr) {
-    // Likely a CORS failure (TypeError: Failed to fetch). Retry via proxy.
-    console.warn("Direct request failed, retrying via CORS proxy:", directErr);
-    const proxied = CORS_PROXY + encodeURIComponent(url);
-    const res = await fetch(proxied);
-    if (!res.ok) throw new Error(`Proxy request failed (${res.status})`);
-    return await res.json();
+    if (res.ok) return await readJson(res);
+  } catch (err) {
+    console.warn("Direct request failed (likely CORS):", err.message);
   }
+
+  // 2) Fall back through the CORS proxies until one succeeds.
+  let lastError;
+  for (const makeUrl of CORS_PROXIES) {
+    try {
+      const res = await fetch(makeUrl(url));
+      if (!res.ok) {
+        lastError = new Error(`Proxy returned ${res.status}`);
+        console.warn(`Proxy failed (${res.status}):`, makeUrl(url));
+        continue;
+      }
+      return await readJson(res);
+    } catch (err) {
+      lastError = err;
+      console.warn("Proxy request failed:", err.message);
+    }
+  }
+
+  throw lastError || new Error("All requests failed");
 }
 
 async function suggest() {
@@ -148,7 +182,7 @@ async function suggest() {
     const hint =
       location.protocol === "file:"
         ? "Open this page via a local server (not file://) — see the README."
-        : "Open the browser console (F12) for details.";
+        : "The activity service (or its CORS proxy) may be temporarily down. Try again in a moment.";
     setStatus(`Couldn't reach the activity service. ${hint}`, true);
     console.error(err);
   } finally {
