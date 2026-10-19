@@ -33,7 +33,7 @@ every push to `main`.
 
 **One-time setup:** in the repo, go to **Settings → Pages → Source** and select
 **GitHub Actions**. After that, each push to `main` publishes the site to
-`https://<your-username>.github.io/activity-suggester/`.
+`https://dennis-shvabskiy.github.io/activity-suggester/`.
 
 You can also trigger a deployment manually from the **Actions** tab
 ("Deploy to GitHub Pages" → *Run workflow*).
